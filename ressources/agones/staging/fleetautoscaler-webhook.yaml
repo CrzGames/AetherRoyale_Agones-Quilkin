@@ -11,7 +11,7 @@ spec:
     webhook:
       # Endpoint HTTPS public de ton webhook
       # ⚠️ Pas besoin de caBundle si le certificat est signé par une CA reconnue (ex: Let's Encrypt)
-      url: https://api.monjeu.crzgames.com/agones/fleet/autoscale # Request HTTP/HTTPS de type POST
+      url: https://staging.api.aetherroyale.crzgames.com/agones/fleet/autoscale # Request HTTP/HTTPS de type POST
   sync:
     # Type de synchronisation. Pour l'instant, seul FixedInterval est disponible.
     type: FixedInterval
