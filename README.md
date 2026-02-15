@@ -1,1 +1,1 @@
-# AetherRoyale_Agones-Quilkin
+# AetherRoyale - Agones / Quilkin
