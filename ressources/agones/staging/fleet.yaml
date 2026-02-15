@@ -120,14 +120,16 @@ spec:
           # Doit généralement correspondre à la capacité max du serveur.
           capacity: 100
 
-      containers:
-        - name: aetherroyale-game-server
-          image: us-docker.pkg.dev/agones-images/examples/simple-game-server:0.41
-          imagePullPolicy: IfNotPresent
-          resources:
-            requests:
-              memory: 64Mi
-              cpu: 20m
-            limits:
-              memory: 64Mi
-              cpu: 20m
+      template:
+        spec:
+          containers:
+            - name: aetherroyale-game-server
+              image: us-docker.pkg.dev/agones-images/examples/simple-game-server:0.41
+              imagePullPolicy: IfNotPresent
+              resources:
+                requests:
+                  memory: 64Mi
+                  cpu: 20m
+                limits:
+                  memory: 64Mi
+                  cpu: 20m
