@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    role: proxy
+  name: quilkin-proxies
+  namespace: quilkin-system
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      role: proxy
+  template:
+    metadata:
+      labels:
+        role: proxy
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8000"
+    spec:
+      containers:
+        - name: quilkin          
+          # Pour Quilkin v0.10.0 (c'est le commitsha exact de la version release Quilkin v0.10.0)
+          image: ghcr.io/embarkstudios/quilkin:0.10.0-ff0fcef
+          # Pour Quilkin v0.10.0
+          args:
+            - --service.udp
+            - --provider.xds.endpoints=http://quilkin-manage-agones
+          env:
+            - name: RUST_LOG
+              value: info,quilkin=trace
+          livenessProbe:
+            periodSeconds: 5
+            failureThreshold: 3
+            httpGet:
+              path: /live
+              port: 8000
+              scheme: HTTP
+          readinessProbe:
+            periodSeconds: 1
+            failureThreshold: 900
+            successThreshold: 1
+            httpGet:
+              path: /ready
+              port: 8000
+              scheme: HTTP
+          ports:
+            - containerPort: 7777
+              protocol: UDP
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: quilkin-proxies
+  namespace: quilkin-system
+  annotations:
+    # IMPORTANT SI : Clusters exécutant des versions de Kubernetes antérieures à la version <= 1.31
+    loadbalancer.ovhcloud.com/class: "octavia"
+
+    # Taille du Load Balancer (flavor OVH)
+    # small = 200 Mbit/s ; medium = 500 Mbit/s ; large = 2 Gbit/s ; xl = 4 Gbit/s
+    loadbalancer.ovhcloud.com/flavor: "small" # default = small
+
+    # (optionnel mais recommandé) garde la même Floating IP si tu supprimes/recrées le Service
+    loadbalancer.openstack.org/keep-floatingip: "true"
+
+    # (optionnel mais recommandé) health monitor côté Octavia
+    loadbalancer.openstack.org/enable-health-monitor: "true"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Cluster
+  ports:
+    - name: udp-game
+      port: 7777
+      protocol: UDP
+      targetPort: 7777
+  selector:
+    role: proxy

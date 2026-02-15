@@ -1,0 +1,213 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: quilkin-xds-filter-config
+  namespace: quilkin-system
+  labels:
+    quilkin.dev/configmap: "true"
+data:
+  quilkin.yaml: |
+    version: v1alpha1
+    filters:
+      # 🔻 Client du jeu -> Quilkin Proxy -> GameServer
+      # 1. LocalRateLimit
+      # 2. Capture token (suffix 16, remove)
+      # 3. Capture timestamp (suffix 8, remove)
+      # 4. Match token présent → sinon Drop
+      # 5. TokenRouter (pour router vers le bon GameServer dans la Fleet en fonction du token)
+      # 6. Timestamp metrics
+
+      # Le proxy Quilkin attend que chaque paquet UDP envoyé par le client respecte ce format (avec ces filtres appliqué comme ce fichier .yaml) :
+      # [ payload ] | [ timestamp_8_bytes ] | [ token_16_bytes ]
+      #
+      # - payload :
+      #   Les données de jeu réelles envoyées par le client du jeu, de taille variable.
+      #
+      # - timestamp_8_bytes :
+      #   Timestamp UNIX UTC en millisecondes sur 8 bytes (uint64).
+      #   Encodage recommandé : big-endian (network byte order).
+      #   Placé en suffix pour permettre au filtre Capture de Quilkin de l’extraire et de mesurer la durée de traitement du paquet UDP dans le proxy Quilkin (pour les metrics), uniquement après la décision d’acceptation ou de drop du paquet UDP (ex: après le filtre Match qui vérifie la présence du token), pour éviter de mesurer la durée de traitement des paquets qui seraient ensuite DROP (ex: paquets sans token ou avec token invalide).
+      #
+      # - token_16_bytes :
+      #   Token binaire de session/match sur 16 bytes exacts.
+      #   Fourni par le backend après matchmaking.
+      #   Placé en suffix pour permettre au filtre Capture de Quilkin de l’extraire.
+
+      # 1) Garde-fou anti-flood
+      - name: quilkin.filters.local_rate_limit.v1alpha1.LocalRateLimit
+        config:
+          max_packets: 200 # Nombre maximum de paquets autorisés par source IP/port pour éviter les abus.
+          period: 1        # En secondes
+
+      # 2) Capture le token (suffix 16 bytes) et l'enlève du paquet UDP
+      - name: quilkin.filters.capture.v1alpha1.Capture
+        config:
+          metadataKey: "quilkin.dev/tokens"
+          suffix:
+            size: 16
+            remove: true
+
+      # 3) Capture le timestamp (suffix 8 bytes) et l’enlève du paquet UDP
+      - name: quilkin.filters.capture.v1alpha1.Capture
+        config:
+          metadataKey: "quilkin.dev/timestamps"
+          suffix:
+            size: 8
+            remove: true
+              
+      # 4) Sois le token est présent et valide -> on continue le chain de filtres, sois il est absent ou invalide -> DROP le paquet UDP
+      - name: quilkin.filters.match.v1alpha1.Match
+        config:
+          on_read:
+            # clé spéciale fournie par Capture ci-dessus qui contient le token extrait du suffixe du paquet UDP
+            metadataKey: "quilkin.dev/tokens/is_present"
+            branches:
+              # token présent -> laisser passer (on continue le chain)
+              - value: true
+                name: quilkin.filters.pass.v1alpha1.Pass
+            # token absent -> DROP le paquet UDP ET s'arrêter là (pas de chain de filtres supplémentaire)
+            fallthrough:
+              name: quilkin.filters.drop.v1alpha1.Drop
+      
+      # 5) Router vers le bon endpoint (GameServer) dans la Fleet via le token (metadata)
+      - name: quilkin.filters.token_router.v1alpha1.TokenRouter
+        config:
+          metadataKey: "quilkin.dev/tokens"
+      
+      # 6) Metrics de durée uniquement après décision d’acceptation/routage du paquet UDP, pour éviter de mesurer la durée de traitement des paquets qui seraient ensuite DROP (ex: paquets sans token ou avec token invalide)
+      - name: quilkin.filters.timestamp.v1alpha1.Timestamp
+        config:
+          metadataKey: "quilkin.dev/timestamps"
+
+---
+
+# RBAC Setup for Agones xDS Control Plane
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: quilkin-agones  
+  namespace: quilkin-system
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quilkin-agones
+rules:
+  - apiGroups:
+      - agones.dev
+    resources:
+      - gameservers
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quilkin-agones
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quilkin-agones
+subjects:
+  - kind: ServiceAccount
+    name: quilkin-agones
+    namespace: quilkin-system
+
+---
+
+# Quilkin + Agones xDS server
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    role: xds
+  name: quilkin-manage-agones
+  namespace: quilkin-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      role: xds
+  template:
+    metadata:
+      labels:
+        role: xds
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8000"
+    spec:
+      # (volumes) Pour Quilkin v0.10.0
+      volumes:
+        - name: quilkin-config
+          configMap:
+            name: quilkin-xds-filter-config
+            items:
+              - key: quilkin.yaml
+                path: quilkin.yaml
+      containers:
+        - name: quilkin
+          # Pour Quilkin v0.10.0
+          args:
+            - --service.xds
+            - --provider.k8s.agones
+            - --provider.k8s.agones.namespace=gameservers # Important : Par défault quilkin recherche les instances des GameServer ou Fleet dans le namespace "default", on peux le changer ici.
+            - --config=/etc/quilkin/quilkin.yaml
+          env:
+            - name: RUST_LOG
+              value: info,quilkin=trace
+          # Pour Quilkin v0.10.0 (c'est le commitsha exact de la version release Quilkin v0.10.0)
+          image: ghcr.io/embarkstudios/quilkin:0.10.0-ff0fcef
+          # (volumeMounts) Pour Quilkin v0.10.0
+          volumeMounts:
+            - name: quilkin-config
+              mountPath: /etc/quilkin
+              readOnly: true
+          livenessProbe:
+            periodSeconds: 5
+            failureThreshold: 3
+            httpGet:
+              path: /live
+              port: 8000
+              scheme: HTTP
+          readinessProbe:
+            periodSeconds: 1
+            failureThreshold: 900
+            successThreshold: 1
+            httpGet:
+              path: /ready
+              port: 8000
+              scheme: HTTP
+          ports:
+            - containerPort: 7800
+              protocol: TCP
+      serviceAccountName: quilkin-agones
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: quilkin-manage-agones
+  namespace: quilkin-system
+spec:
+  ports:
+    - port: 80
+      protocol: TCP
+      targetPort: 7800
+  selector:
+    role: xds
