@@ -4,8 +4,6 @@ metadata:
   name: fleet-aetherroyale-game-server
   namespace: gameservers
 spec:
-  # Nombre de serveurs de jeu à maintenir prêts ou alloués dans cette flotte
-  replicas: 2 # IMPORTANT : Possible de virer cette ligne si on utilise un FleetAutoscaler
   # Définit l'organisation des serveurs de jeu au sein du cluster.
   # Options possibles :
   # « Packed » (par défaut) est destiné aux clusters Kubernetes dynamiques, tels que les fournisseurs de cloud, où l'on souhaite regrouper les ressources.
