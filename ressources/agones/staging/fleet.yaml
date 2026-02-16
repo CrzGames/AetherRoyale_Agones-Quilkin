@@ -75,7 +75,7 @@ spec:
         # - « Debug » : le serveur SDK affichera tous les messages, y compris les messages de débogage.
         # - « Error » : le serveur SDK affichera uniquement les messages d’erreur.
         # - « Trace » : le serveur SDK affichera tous les messages, y compris les informations de traçage détaillées.
-        logLevel: Trace
+        logLevel: Debug # Ne pas mettre "Trace" avec Quilkin v0.10.0 il ne connait pas "Trace"
         # Les paramètres grpcPort et httpPort déterminent les ports d'écoute du serveur SDK.
         grpcPort: 9357
         httpPort: 9358
