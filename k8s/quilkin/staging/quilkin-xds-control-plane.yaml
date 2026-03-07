@@ -12,22 +12,14 @@ data:
       # 🔻 Client du jeu -> Quilkin Proxy -> GameServer
       # 1. LocalRateLimit
       # 2. Capture token (suffix 16, remove)
-      # 3. Capture timestamp (suffix 8, remove)
-      # 4. Match token présent → sinon Drop
-      # 5. TokenRouter (pour router vers le bon GameServer dans la Fleet en fonction du token)
-      # 6. Timestamp metrics
+      # 3. Match token présent → sinon Drop
+      # 4. TokenRouter (pour router vers le bon GameServer dans la Fleet en fonction du token)
 
       # Le proxy Quilkin attend que chaque paquet UDP envoyé par le client respecte ce format (avec ces filtres appliqué comme ce fichier .yaml) :
-      # [ payload ] | [ timestamp_8_bytes ] | [ token_16_bytes ]
+      # [ payload ] | [ token_16_bytes ]
       #
       # - payload :
       #   Les données de jeu réelles envoyées par le client du jeu, de taille variable.
-      #
-      # - timestamp_8_bytes :
-      #   Timestamp UNIX UTC en millisecondes sur 8 bytes (uint64).
-      #   Encodage recommandé : big-endian (network byte order).
-      #   Placé en suffix pour permettre au filtre Capture de Quilkin de l’extraire et de mesurer la durée de traitement du paquet UDP dans le proxy Quilkin (pour les metrics), uniquement après la décision d’acceptation ou de drop du paquet UDP (ex: après le filtre Match qui vérifie la présence du token), pour éviter de mesurer la durée de traitement des paquets qui seraient ensuite DROP (ex: paquets sans token ou avec token invalide).
-      #
       # - token_16_bytes :
       #   Token binaire de session/match sur 16 bytes exacts.
       #   Fourni par le backend après matchmaking.
@@ -46,16 +38,8 @@ data:
           suffix:
             size: 16
             remove: true
-
-      # 3) Capture le timestamp (suffix 8 bytes) et l’enlève du paquet UDP
-      - name: quilkin.filters.capture.v1alpha1.Capture
-        config:
-          metadataKey: "quilkin.dev/timestamps"
-          suffix:
-            size: 8
-            remove: true
               
-      # 4) Sois le token est présent et valide -> on continue le chain de filtres, sois il est absent ou invalide -> DROP le paquet UDP
+      # 3) Sois le token est présent et valide -> on continue le chain de filtres, sois il est absent ou invalide -> DROP le paquet UDP
       - name: quilkin.filters.match.v1alpha1.Match
         config:
           on_read:
@@ -69,16 +53,11 @@ data:
             fallthrough:
               name: quilkin.filters.drop.v1alpha1.Drop
       
-      # 5) Router vers le bon endpoint (GameServer) dans la Fleet via le token (metadata)
+      # 4) Router vers le bon endpoint (GameServer) dans la Fleet via le token (metadata)
       - name: quilkin.filters.token_router.v1alpha1.TokenRouter
         config:
           metadataKey: "quilkin.dev/tokens"
-      
-      # 6) Metrics de durée uniquement après décision d’acceptation/routage du paquet UDP, pour éviter de mesurer la durée de traitement des paquets qui seraient ensuite DROP (ex: paquets sans token ou avec token invalide)
-      - name: quilkin.filters.timestamp.v1alpha1.Timestamp
-        config:
-          metadataKey: "quilkin.dev/timestamps"
-
+          
 ---
 
 # RBAC Setup for Agones xDS Control Plane
