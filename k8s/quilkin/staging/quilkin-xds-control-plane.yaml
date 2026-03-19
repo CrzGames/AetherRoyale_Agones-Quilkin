@@ -144,7 +144,7 @@ spec:
           args:
             - --service.xds
             - --provider.k8s.agones
-            - --provider.k8s.agones.namespace=staging-aetherroyale-gameservers # Important : Par défault quilkin recherche les instances des GameServer ou Fleet dans le namespace "default", on peux le changer ici.
+            - --provider.k8s.agones.namespace=staging-aetherroyale-agones-gameservers # Important : Par défault quilkin recherche les instances des GameServer ou Fleet dans le namespace "default", on peux le changer ici.
             - --config=/etc/quilkin/quilkin.yaml
           env:
             - name: RUST_LOG
